@@ -2,52 +2,48 @@ package com.vettiankal;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.Timer;
+import java.util.TimerTask;
 
-public class Profiler {
+public class Profiler extends TimerTask {
 
-    private ScheduledExecutorService scheduler;
-    private long pollDelay;
+    private long pollInterval;
     private long duration;
     private HashMap<ThreadInfo, ExecutionTree> trees;
     private int polls;
 
-    private ScheduledFuture task;
+    private Timer scheduler;
     private long start;
     private ProfileCompleteEvent onComplete;
 
+    // TODO allow threads to monitor to be specified
     public Profiler() {
-        //TODO adjust this value based on how long it takes to execute profiler
         this(10);
     }
 
-    public Profiler(long pollDelay) {
-        this(pollDelay, -1);
+    public Profiler(long pollInterval) {
+        this(pollInterval, -1);
     }
 
-    public Profiler(long pollDelay, long duration) {
-        this.pollDelay = pollDelay;
+    public Profiler(long pollInterval, long duration) {
+        this.pollInterval = pollInterval;
         this.duration = duration;
-        this.scheduler = Executors.newScheduledThreadPool(3);
         this.trees = new HashMap<>();
         this.polls = 0;
     }
 
     public long getPollingDelay() {
-        return pollDelay;
+        return pollInterval;
     }
 
     public long getDuration() {
         return duration;
     }
 
-    private void profile() {
+    public void run() {
         try {
             if (duration > 0 && System.currentTimeMillis() - start > duration) {
-                task.cancel(false);
+                scheduler.cancel();
                 if (onComplete != null) onComplete.onComplete(trees);
                 return;
             }
@@ -65,6 +61,7 @@ public class Profiler {
 
             this.polls++;
         } catch (Throwable e) {
+            // TODO set exception handler
             e.printStackTrace();
         }
     }
@@ -74,20 +71,19 @@ public class Profiler {
     }
 
     public void start(ProfileCompleteEvent onComplete) throws ProfilerException {
-        if(this.task != null) throw new ProfilerException("Attempted to start already started profiler");
+        if(this.scheduler != null) throw new ProfilerException("Attempted to start already started profiler");
 
-        this.task = scheduler.scheduleAtFixedRate(this::profile, 0, pollDelay, TimeUnit.MILLISECONDS);
+        this.scheduler = new Timer();
+        this.scheduler.scheduleAtFixedRate(this, 0, pollInterval);
         this.start = System.currentTimeMillis();
         this.onComplete = onComplete;
     }
 
-    public ExecutionTree stop() throws ProfilerException {
-        if(task == null) throw new ProfilerException("Attempted to stop non-started profiler");
-        if(task.isCancelled()) throw new ProfilerException("Attempted to call stop more than once");
+    public HashMap<ThreadInfo, ExecutionTree> stop() throws ProfilerException {
+        if(scheduler == null) throw new ProfilerException("Attempted to stop non-started profiler");
 
-        task.cancel(true);
-        scheduler.shutdown();
-        return null;
+        scheduler.cancel();
+        return trees;
     }
 
 }
