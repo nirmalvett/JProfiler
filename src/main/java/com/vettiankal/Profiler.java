@@ -1,11 +1,20 @@
 package com.vettiankal;
 
+import com.sun.management.GarbageCollectionNotificationInfo;
+
+import javax.management.ListenerNotFoundException;
+import javax.management.Notification;
+import javax.management.NotificationEmitter;
+import javax.management.NotificationListener;
+import javax.management.openmbean.CompositeData;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 
-public class Profiler extends TimerTask {
+public class Profiler extends TimerTask implements NotificationListener {
 
     private long pollInterval;
     private long duration;
@@ -54,10 +63,20 @@ public class Profiler extends TimerTask {
         this.exceptionHandler = exceptionHandler;
     }
 
+
+    @Override
+    public void handleNotification(Notification notification, Object handback) {
+        if (notification.getType().equals(GarbageCollectionNotificationInfo.GARBAGE_COLLECTION_NOTIFICATION)) {
+            GarbageCollectionNotificationInfo gcInfo = GarbageCollectionNotificationInfo.from((CompositeData) notification.getUserData());
+            this.duration += gcInfo.getGcInfo().getDuration();
+        }
+    }
+
+    @Override
     public void run() {
         try {
             if (duration > 0 && System.currentTimeMillis() - start > duration) {
-                scheduler.cancel();
+                stop();
                 if (onComplete != null) onComplete.onComplete(trees);
                 return;
             }
@@ -84,7 +103,12 @@ public class Profiler extends TimerTask {
 
             this.polls++;
         } catch (Throwable e) {
-            exceptionHandler.uncaughtException(Thread.currentThread(), e);
+            if(exceptionHandler != null) {
+                exceptionHandler.uncaughtException(Thread.currentThread(), e);
+            } else {
+                e.printStackTrace();
+                System.err.println("An error occurred while profiling. Use Profiler::setExceptionHandler to set the exception handler of the profiling thread.");
+            }
         }
     }
 
@@ -95,6 +119,15 @@ public class Profiler extends TimerTask {
     public void start(ProfileCompleteEvent onComplete) throws ProfilerException {
         if(this.scheduler != null) throw new ProfilerException("Attempted to start already started profiler");
 
+        for (GarbageCollectorMXBean gcBean : ManagementFactory.getGarbageCollectorMXBeans()) {
+            if (!(gcBean instanceof NotificationEmitter)) {
+                continue;
+            }
+
+            NotificationEmitter emitter = (NotificationEmitter) gcBean;
+            emitter.addNotificationListener(this,null,null);
+        }
+
         this.scheduler = new Timer("Profiler", true);
         this.scheduler.scheduleAtFixedRate(this, 0, pollInterval);
         this.start = System.currentTimeMillis();
@@ -103,8 +136,21 @@ public class Profiler extends TimerTask {
 
     public HashMap<ThreadInfo, ExecutionTree> stop() throws ProfilerException {
         if(scheduler == null) throw new ProfilerException("Attempted to stop non-started profiler");
-
         scheduler.cancel();
+
+        for (GarbageCollectorMXBean gcBean : ManagementFactory.getGarbageCollectorMXBeans()) {
+            if (!(gcBean instanceof NotificationEmitter)) {
+                continue;
+            }
+
+            NotificationEmitter emitter = (NotificationEmitter) gcBean;
+            try {
+                emitter.removeNotificationListener(this);
+            } catch (ListenerNotFoundException ignored) {
+
+            }
+        }
+
         return trees;
     }
 

@@ -19,7 +19,6 @@ public class ExecutionTree {
         }
     }
 
-    // TODO make this non recursive
     private void nodeString(ExecutionTreeNode node, StringBuilder builder, String indent) {
         builder.append(indent);
         builder.append(node);
