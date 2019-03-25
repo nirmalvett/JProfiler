@@ -85,7 +85,12 @@ public class Profiler extends TimerTask implements NotificationListener {
             if(threads.length > 0) {
                 stackTraces = new HashMap<>();
                 for(Thread thread : threads) {
-                    stackTraces.put(thread, thread.getStackTrace());
+                    if(thread.isAlive()) {
+                        stackTraces.put(thread, thread.getStackTrace());
+                    } else {
+                        // TODO change how dead thread is handled
+                        stackTraces.put(thread, new StackTraceElement[] { new StackTraceElement("N/A", "Dead", "Thread", 0) });
+                    }
                 }
             } else {
                 stackTraces = Thread.getAllStackTraces();
